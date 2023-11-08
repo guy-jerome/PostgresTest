@@ -5,6 +5,12 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import path  from "path";
 import bcrypt from "bcrypt"
+import  jwt from 'jsonwebtoken'
+import cookie from 'cookie'
+import cookieParser from "cookie-parser";
+
+
+
 
 const currentFileUrl = import.meta.url;
 const __dirname = dirname(fileURLToPath(currentFileUrl));
@@ -23,22 +29,48 @@ const pool = new pg.Pool({
     password: process.env.PG_PASS,
     port: 5432
 
-
 })
 
 app.use(express.static(path.join(__dirname, 'public')))
 
 app.use(express.json())
 
-app.get('/user', (req,res,next)=>{
+app.use(cookieParser())
+
+const authorization = (req, res, next) =>{
+    const token = req.cookies.jwtToken;
+    if (!token){
+        return res.sendStatus(403)
+    }
+    try{
+        const data =jwt.verify(token, process.env.JWT_SECRET)
+        req.username = data.username
+        return next();
+    }catch{
+        return res.sendStatus(403)
+    }
+}
+
+app.get('/user',authorization, (req,res,next)=>{
+
     res.sendFile(path.join(__dirname, 'public', 'user', 'user.html'))
 })
-app.get('/aaron', (req,res,next)=>{
-    console.log(req.body)
-    res.sendFile(path.join(__dirname, 'public', 'user', 'aaron.html'))
+app.get('/aaron',authorization,(req,res,next)=>{
+    if(req.username === "Aaron"){
+        res.sendFile(path.join(__dirname, 'public', 'user', 'aaron.html'))
+    }else{
+        res.redirect('/login')
+    }
+
 })
-app.get('/sam', (req,res,next)=>{
-    res.sendFile(path.join(__dirname, 'public', 'user', 'sam.html'))
+app.get('/sam',authorization,(req,res,next)=>{
+    if(req.username === "Sam"){
+        res.sendFile(path.join(__dirname, 'public', 'user', 'sam.html'))
+    }else{
+        res.redirect('/login')
+    }
+
+    
 })
 
 
@@ -61,14 +93,15 @@ app.post('/login', async (req,res, next)=>{
                     next(err)
                 }else if(match){
                     console.log("Authentication Successful")
-                    if (username === "Aaron"){
-                        res.redirect('/aaron')
-                    }else if (username === "Sam"){
-                        res.redirect('/sam')
-                    }else{
-                        res.redirect('/user')
-                    }
-                    
+                    const token = jwt.sign({username}, process.env.JWT_SECRET, { expiresIn: '1h'});
+                    const cookieOptions = {
+                        maxAge: 3600000,
+                        httpOnly: true,
+                        secure: process.env.NODE_ENV == 'production'
+                    };
+
+                    res.setHeader('Set-Cookie', cookie.serialize('jwtToken', token, cookieOptions));
+                    res.redirect('/landing')
                 }else{
                     console.log("Authentication Failed")
                     res.status(401).json({error: 'Authentication Failed'})
@@ -88,6 +121,7 @@ app.post('/login', async (req,res, next)=>{
 app.get('/register', (req,res,next)=>{
     res.sendFile(path.join(__dirname, 'public', 'register', 'register.html'))
 })
+
 app.post('/register', async (req, res, next)=>{
     const {username, password} = req.body
     try{
@@ -112,6 +146,16 @@ app.post('/register', async (req, res, next)=>{
 
 })
 
+app.get('/landing', authorization, (req, res, next)=>{
+
+    if (req.username === "Aaron"){
+        res.sendFile(path.join(__dirname, 'public', 'user', 'aaron.html'))
+    }else if (req.username === "Sam"){
+        res.sendFile(path.join(__dirname, 'public', 'user', 'sam.html'))
+    }else{
+        res.sendFile(path.join(__dirname, 'public', 'user', 'user.html'))
+    }
+})
 
 app.use((err,req,res,next)=>{
     console.log(err)
